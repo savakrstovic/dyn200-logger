@@ -130,6 +130,7 @@ class Logger:
         self.buf_t      = collections.deque(maxlen=maxlen)
         self.buf_torque = collections.deque(maxlen=maxlen)
         self.buf_speed  = collections.deque(maxlen=maxlen)
+        self.buf_power  = collections.deque(maxlen=maxlen)
         self.lock = threading.Lock()
 
     def run(self):
@@ -174,6 +175,7 @@ class Logger:
                     self.buf_t.append(loop_start - t_start)
                     self.buf_torque.append(torque)
                     self.buf_speed.append(speed)
+                    self.buf_power.append(power)
 
                 self.n_ok += 1
                 if not args.quiet and not args.plot:
@@ -214,17 +216,20 @@ def run_plot(logger):
     import matplotlib.pyplot as plt
     from matplotlib.animation import FuncAnimation
 
-    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(9, 6))
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, sharex=True, figsize=(9, 8))
     fig.canvas.manager.set_window_title("DYN-200 live data")
 
     (line_torque,) = ax1.plot([], [], lw=1.2)
     (line_speed,)  = ax2.plot([], [], lw=1.2, color="tab:orange")
+    (line_power,)  = ax3.plot([], [], lw=1.2, color="tab:green")
 
     ax1.set_ylabel("Torque [N·m]")
     ax2.set_ylabel("Speed [RPM]")
-    ax2.set_xlabel("Time [s]")
+    ax3.set_ylabel("Power [W]")
+    ax3.set_xlabel("Time [s]")
     ax1.grid(True, alpha=0.3)
     ax2.grid(True, alpha=0.3)
+    ax3.grid(True, alpha=0.3)
     title = ax1.set_title("waiting for data...")
 
     def update(_frame):
@@ -232,18 +237,22 @@ def run_plot(logger):
             t  = list(logger.buf_t)
             tq = list(logger.buf_torque)
             sp = list(logger.buf_speed)
+            pw = list(logger.buf_power)
         if not t:
-            return line_torque, line_speed
+            return line_torque, line_speed, line_power
         line_torque.set_data(t, tq)
         line_speed.set_data(t, sp)
+        line_power.set_data(t, pw)
         ax1.set_xlim(max(0, t[-1] - logger.args.plot_window),
                      max(t[-1], logger.args.plot_window))
         ax1.relim(); ax1.autoscale_view(scalex=False)
         ax2.relim(); ax2.autoscale_view(scalex=False)
+        ax3.relim(); ax3.autoscale_view(scalex=False)
         title.set_text(
             f"torque {tq[-1]:.3f} N·m    speed {sp[-1]:.0f} RPM    "
+            f"power {pw[-1]:.0f} W    "
             f"(ok {logger.n_ok} / err {logger.n_err})")
-        return line_torque, line_speed
+        return line_torque, line_speed, line_power
 
     ani = FuncAnimation(fig, update, interval=200, cache_frame_data=False)
     plt.tight_layout()
