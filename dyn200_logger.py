@@ -1,0 +1,316 @@
+#!/usr/bin/env python3
+"""
+DYN-200 Dynamic Torque Sensor data logger with live plotting
+============================================================
+
+Reads torque / speed / power from a DYN-200 sensor over RS485
+(Modbus RTU) using a USB-RS485 adapter (e.g. Waveshare USB TO RS485),
+stores samples in an SQLite database (+ optional CSV), and can show a
+live scrolling plot while logging.
+
+Register map (from the DYN-200 manual, function code 03H):
+    0x0000  Torque  (32-bit signed, scaled by the "decimal" setting, N·m)
+    0x0002  Speed   (32-bit,        RPM)
+    0x0004  Power   (32-bit,        "Power/10W", i.e. raw * 10 = watts)
+
+Sensor serial defaults: 38400 baud, 8 data bits, no parity, 2 stop bits,
+slave address 1.
+
+Dependencies:
+    pip install minimalmodbus pyserial matplotlib
+
+Usage examples:
+    python dyn200_logger.py --demo --plot            # no hardware needed!
+    python dyn200_logger.py --port COM5 --plot       # Windows
+    python dyn200_logger.py --port /dev/ttyUSB0 --plot --csv run1.csv
+"""
+
+import argparse
+import collections
+import csv
+import math
+import random
+import sqlite3
+import sys
+import threading
+import time
+from datetime import datetime, timezone
+
+# ---------------------------------------------------------------------------
+# Register addresses (per DYN-200 manual)
+# ---------------------------------------------------------------------------
+REG_TORQUE = 0x0000   # 2 registers, signed
+REG_SPEED  = 0x0002   # 2 registers, unsigned
+REG_POWER  = 0x0004   # 2 registers, signed ("Power/10W")
+COIL_TARE  = 0x0000   # function 05H: build new zero (tare)
+
+
+# ---------------------------------------------------------------------------
+# Sensor access
+# ---------------------------------------------------------------------------
+def make_instrument(port, baud, slave, stopbits, timeout=0.3):
+    import minimalmodbus
+    import serial
+    inst = minimalmodbus.Instrument(port, slave, mode=minimalmodbus.MODE_RTU)
+    inst.serial.baudrate = baud
+    inst.serial.bytesize = 8
+    inst.serial.parity = serial.PARITY_NONE
+    inst.serial.stopbits = stopbits
+    inst.serial.timeout = timeout
+    inst.clear_buffers_before_each_transaction = True
+    return inst
+
+
+class RealSensor:
+    def __init__(self, args):
+        self.inst = make_instrument(args.port, args.baud, args.slave,
+                                    args.stopbits)
+        self.torque_scale = 10 ** (-args.decimals)
+
+    def read(self):
+        raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
+        raw_speed  = self.inst.read_long(REG_SPEED,  functioncode=3, signed=False)
+        raw_power  = self.inst.read_long(REG_POWER,  functioncode=3, signed=True)
+        return (raw_torque * self.torque_scale,   # N·m
+                float(raw_speed),                 # RPM
+                raw_power * 10.0)                 # W
+
+    def tare(self):
+        self.inst.write_bit(COIL_TARE, 1, functioncode=5)
+
+
+class DemoSensor:
+    """Generates plausible fake data so you can test without hardware."""
+    def __init__(self, _args):
+        self.t0 = time.monotonic()
+
+    def read(self):
+        t = time.monotonic() - self.t0
+        torque = 12 + 4 * math.sin(t / 3) + random.gauss(0, 0.15)
+        speed  = 1450 + 60 * math.sin(t / 7) + random.gauss(0, 5)
+        power  = torque * speed * 2 * math.pi / 60  # P = T * omega
+        return torque, speed, power
+
+    def tare(self):
+        pass
+
+
+# ---------------------------------------------------------------------------
+# Storage
+# ---------------------------------------------------------------------------
+def open_db(path):
+    con = sqlite3.connect(path)
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS samples (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            ts_utc     TEXT    NOT NULL,
+            t_mono     REAL    NOT NULL,
+            torque_nm  REAL,
+            speed_rpm  REAL,
+            power_w    REAL
+        )
+    """)
+    con.execute("CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts_utc)")
+    con.commit()
+    return con
+
+
+# ---------------------------------------------------------------------------
+# Acquisition loop (runs in a background thread when plotting)
+# ---------------------------------------------------------------------------
+class Logger:
+    def __init__(self, sensor, args):
+        self.sensor = sensor
+        self.args = args
+        self.stop_event = threading.Event()
+        self.n_ok = 0
+        self.n_err = 0
+        # Ring buffers shared with the plot (last ~plot_window seconds)
+        maxlen = max(100, int(args.plot_window / args.interval) + 10)
+        self.buf_t      = collections.deque(maxlen=maxlen)
+        self.buf_torque = collections.deque(maxlen=maxlen)
+        self.buf_speed  = collections.deque(maxlen=maxlen)
+        self.lock = threading.Lock()
+
+    def run(self):
+        """Poll the sensor until stop_event is set. Owns its own DB handle
+        (sqlite connections must stay on one thread)."""
+        args = self.args
+        con = open_db(args.db)
+
+        csv_file = csv_writer = None
+        if args.csv:
+            try:
+                open(args.csv, "r").close()
+                new_file = False
+            except FileNotFoundError:
+                new_file = True
+            csv_file = open(args.csv, "a", newline="")
+            csv_writer = csv.writer(csv_file)
+            if new_file:
+                csv_writer.writerow(["ts_utc", "torque_nm", "speed_rpm",
+                                     "power_w"])
+
+        last_commit = time.monotonic()
+        t_start = time.monotonic()
+
+        while not self.stop_event.is_set():
+            loop_start = time.monotonic()
+            try:
+                torque, speed, power = self.sensor.read()
+                ts = datetime.now(timezone.utc).isoformat(
+                    timespec="milliseconds")
+
+                con.execute(
+                    "INSERT INTO samples "
+                    "(ts_utc, t_mono, torque_nm, speed_rpm, power_w) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (ts, loop_start, torque, speed, power))
+                if csv_writer:
+                    csv_writer.writerow([ts, f"{torque:.4f}",
+                                         f"{speed:.1f}", f"{power:.1f}"])
+
+                with self.lock:
+                    self.buf_t.append(loop_start - t_start)
+                    self.buf_torque.append(torque)
+                    self.buf_speed.append(speed)
+
+                self.n_ok += 1
+                if not args.quiet and not args.plot:
+                    sys.stdout.write(
+                        f"\r{ts}  torque {torque:9.3f} N·m   "
+                        f"speed {speed:8.1f} RPM   power {power:9.1f} W   "
+                        f"(ok {self.n_ok} / err {self.n_err})   ")
+                    sys.stdout.flush()
+
+            except Exception as e:
+                self.n_err += 1
+                if not args.quiet:
+                    sys.stdout.write(f"\rComms error ({e}); retrying...     ")
+                    sys.stdout.flush()
+                time.sleep(0.5)
+
+            if time.monotonic() - last_commit > 1.0:
+                con.commit()
+                if csv_file:
+                    csv_file.flush()
+                last_commit = time.monotonic()
+
+            remaining = self.args.interval - (time.monotonic() - loop_start)
+            if remaining > 0:
+                # Wait on the event so Ctrl+C / window close reacts fast
+                self.stop_event.wait(remaining)
+
+        con.commit()
+        con.close()
+        if csv_file:
+            csv_file.close()
+
+
+# ---------------------------------------------------------------------------
+# Live plot
+# ---------------------------------------------------------------------------
+def run_plot(logger):
+    import matplotlib.pyplot as plt
+    from matplotlib.animation import FuncAnimation
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, figsize=(9, 6))
+    fig.canvas.manager.set_window_title("DYN-200 live data")
+
+    (line_torque,) = ax1.plot([], [], lw=1.2)
+    (line_speed,)  = ax2.plot([], [], lw=1.2, color="tab:orange")
+
+    ax1.set_ylabel("Torque [N·m]")
+    ax2.set_ylabel("Speed [RPM]")
+    ax2.set_xlabel("Time [s]")
+    ax1.grid(True, alpha=0.3)
+    ax2.grid(True, alpha=0.3)
+    title = ax1.set_title("waiting for data...")
+
+    def update(_frame):
+        with logger.lock:
+            t  = list(logger.buf_t)
+            tq = list(logger.buf_torque)
+            sp = list(logger.buf_speed)
+        if not t:
+            return line_torque, line_speed
+        line_torque.set_data(t, tq)
+        line_speed.set_data(t, sp)
+        ax1.set_xlim(max(0, t[-1] - logger.args.plot_window),
+                     max(t[-1], logger.args.plot_window))
+        ax1.relim(); ax1.autoscale_view(scalex=False)
+        ax2.relim(); ax2.autoscale_view(scalex=False)
+        title.set_text(
+            f"torque {tq[-1]:.3f} N·m    speed {sp[-1]:.0f} RPM    "
+            f"(ok {logger.n_ok} / err {logger.n_err})")
+        return line_torque, line_speed
+
+    ani = FuncAnimation(fig, update, interval=200, cache_frame_data=False)
+    plt.tight_layout()
+    plt.show()   # blocks until the window is closed
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+def main():
+    ap = argparse.ArgumentParser(description="DYN-200 torque sensor logger")
+    ap.add_argument("--port", help="Serial port, e.g. /dev/ttyUSB0 or COM5")
+    ap.add_argument("--baud", type=int, default=38400)
+    ap.add_argument("--slave", type=int, default=1)
+    ap.add_argument("--stopbits", type=int, default=2, choices=[1, 2])
+    ap.add_argument("--decimals", type=int, default=2,
+                    help="Sensor 'decimal point' setting (default 2)")
+    ap.add_argument("--interval", type=float, default=0.2,
+                    help="Polling interval in seconds (default 0.2 = 5 Hz)")
+    ap.add_argument("--db", default="dyn200_data.sqlite")
+    ap.add_argument("--csv", default=None,
+                    help="Optional CSV file to also append samples to")
+    ap.add_argument("--tare", action="store_true",
+                    help="Zero the sensor before logging starts")
+    ap.add_argument("--plot", action="store_true",
+                    help="Show a live scrolling plot while logging")
+    ap.add_argument("--plot-window", type=float, default=30.0,
+                    help="Seconds of history shown in the plot (default 30)")
+    ap.add_argument("--demo", action="store_true",
+                    help="Generate fake data (no hardware needed)")
+    ap.add_argument("--quiet", action="store_true")
+    args = ap.parse_args()
+
+    if not args.demo and not args.port:
+        ap.error("--port is required (or use --demo to test without hardware)")
+
+    sensor = DemoSensor(args) if args.demo else RealSensor(args)
+
+    if args.tare:
+        print("Taring sensor (setting new zero point)...")
+        sensor.tare()
+        time.sleep(0.5)
+
+    logger = Logger(sensor, args)
+    src = "DEMO data" if args.demo else f"{args.port} @ {args.baud} baud"
+    print(f"Logging from {src} -> {args.db}"
+          + (f" and {args.csv}" if args.csv else ""))
+
+    if args.plot:
+        thread = threading.Thread(target=logger.run, daemon=True)
+        thread.start()
+        print("Close the plot window to stop logging.")
+        try:
+            run_plot(logger)
+        finally:
+            logger.stop_event.set()
+            thread.join(timeout=3)
+    else:
+        print("Press Ctrl+C to stop.\n")
+        try:
+            logger.run()
+        except KeyboardInterrupt:
+            logger.stop_event.set()
+
+    print(f"\nStopped. {logger.n_ok} samples logged, "
+          f"{logger.n_err} comms errors.")
+
+
+if __name__ == "__main__":
+    main()
