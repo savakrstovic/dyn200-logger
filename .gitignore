@@ -1,0 +1,12 @@
+# PyInstaller build output (rebuild with: pyinstaller --onefile --name dyn200_logger dyn200_logger.py)
+build/
+dist/
+*.spec
+
+# Logged data — measurement runs don't belong in version control
+*.sqlite
+*.csv
+
+# Python cruft
+__pycache__/
+*.pyc
