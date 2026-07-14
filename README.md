@@ -65,6 +65,7 @@ Useful options:
 |---|---|
 | `--interval 0.1` | Sample every 0.1 s (10 Hz). Default 0.2 s |
 | `--csv run1.csv` | Also append samples to a CSV file |
+| `--csv-excel` | CSV dialect for European-locale Excel (semicolons, decimal commas) |
 | `--tare` | Zero the sensor before logging (same as long-press K3) |
 | `--decimals 2` | Match the sensor's decimal-point setting (default 2) |
 | `--plot-window 60` | Seconds of history shown in the live plot |

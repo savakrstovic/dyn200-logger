@@ -20,5 +20,5 @@ for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH-m
 
 rem Each run gets its own CSV (opens directly in Excel) next to this
 rem script. The SQLite database keeps everything as well.
-"%EXE%" --plot --csv "%~dp0dyn200_run_%TS%.csv"
+"%EXE%" --plot --csv "%~dp0dyn200_run_%TS%.csv" --csv-excel
 pause

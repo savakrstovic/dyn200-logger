@@ -191,7 +191,8 @@ class Logger:
             except FileNotFoundError:
                 new_file = True
             csv_file = open(args.csv, "a", newline="")
-            csv_writer = csv.writer(csv_file)
+            csv_writer = csv.writer(
+                csv_file, delimiter=";" if args.csv_excel else ",")
             if new_file:
                 csv_writer.writerow(["ts_utc", "torque_nm", "speed_rpm",
                                      "power_w"])
@@ -212,8 +213,10 @@ class Logger:
                     "VALUES (?, ?, ?, ?, ?)",
                     (ts, loop_start, torque, speed, power))
                 if csv_writer:
-                    csv_writer.writerow([ts, f"{torque:.4f}",
-                                         f"{speed:.1f}", f"{power:.1f}"])
+                    row = [f"{torque:.4f}", f"{speed:.1f}", f"{power:.1f}"]
+                    if args.csv_excel:
+                        row = [v.replace(".", ",") for v in row]
+                    csv_writer.writerow([ts] + row)
 
                 with self.lock:
                     self.buf_t.append(loop_start - t_start)
@@ -321,6 +324,10 @@ def main():
     ap.add_argument("--db", default="dyn200_data.sqlite")
     ap.add_argument("--csv", default=None,
                     help="Optional CSV file to also append samples to")
+    ap.add_argument("--csv-excel", action="store_true",
+                    help="Write the CSV for Excel on European-locale "
+                         "Windows: semicolons between columns, decimal "
+                         "commas (12,34 instead of 12.34)")
     ap.add_argument("--tare", action="store_true",
                     help="Zero the sensor before logging starts")
     ap.add_argument("--plot", action="store_true",
