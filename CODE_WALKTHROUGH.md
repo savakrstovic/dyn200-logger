@@ -270,8 +270,13 @@ In order:
 1. **Argparse** defines every flag with a default matching the sensor's
    factory settings, so the minimal real-hardware invocation is just
    `--port COM11`.
-2. **Validation:** `--port` is required *unless* `--demo` — enforced with
-   `ap.error(...)`, which prints usage and exits.
+2. **Port selection:** if `--port` is omitted (and it's not a `--demo`
+   run), `pick_port()` takes over: it lists the serial ports Windows
+   currently sees (via pyserial's `list_ports`) and asks you to pick one
+   by number. If no ports are found — adapter not plugged in yet — it
+   waits and lets you press Enter to rescan rather than giving up. This
+   is what makes the double-click `run_sensor.bat` workflow possible:
+   nobody has to know their COM number in advance.
 3. **Sensor selection** — the one line that decides real vs fake:
    ```python
    sensor = DemoSensor(args) if args.demo else RealSensor(args)

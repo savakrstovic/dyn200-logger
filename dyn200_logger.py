@@ -65,17 +65,28 @@ def pick_port():
     """List the serial ports found on this PC and let the user pick one.
     Used when --port wasn't given (and we're not in --demo mode)."""
     from serial.tools import list_ports
-    ports = sorted(list_ports.comports(), key=lambda p: p.device)
-    if not ports:
-        sys.exit("No serial ports found. Is the USB-RS485 adapter plugged "
-                 "in? (Check Device Manager -> Ports (COM & LPT).)")
+
+    while True:
+        ports = sorted(list_ports.comports(), key=lambda p: p.device)
+        if ports:
+            break
+        print("No serial ports found. Is the USB-RS485 adapter plugged in?")
+        try:
+            input("Plug it in, then press Enter to scan again "
+                  "(Ctrl+C quits): ")
+        except (EOFError, KeyboardInterrupt):
+            sys.exit("\nNo serial port selected.")
 
     print("Serial ports found:")
     for i, p in enumerate(ports, start=1):
         print(f"  {i}. {p.device}  ({p.description})")
 
     while True:
-        answer = input(f"Select port [1-{len(ports)}, Enter = 1]: ").strip()
+        try:
+            answer = input(f"Select port [1-{len(ports)}, "
+                           f"Enter = 1]: ").strip()
+        except (EOFError, KeyboardInterrupt):
+            sys.exit("\nNo serial port selected.")
         if answer == "":
             choice = 1
         else:
