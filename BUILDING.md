@@ -106,7 +106,9 @@ the target PC. Then just double-click:
 - `run_demo.bat` — demo mode with live plot (no hardware).
 - `run_sensor.bat` — real sensor with live plot. The logger lists the
   serial ports it finds and asks which one to use, so nobody has to know
-  the COM number in advance.
+  the COM number in advance. Each run also writes its own CSV (e.g.
+  `dyn200_run_2026-07-14_10-30-00.csv`) next to the script, ready to
+  open in Excel; the SQLite database still keeps the full history.
 
 You can also run the exe from a terminal (cmd or PowerShell) to pass
 flags yourself:
