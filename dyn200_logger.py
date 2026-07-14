@@ -44,6 +44,12 @@ REG_SPEED  = 0x0002   # 2 registers, unsigned
 REG_POWER  = 0x0004   # 2 registers, signed ("Power/10W")
 COIL_TARE  = 0x0000   # function 05H: build new zero (tare)
 
+# Configuration registers (also read with function code 03H)
+REG_FILTER    = 0x0006   # digital filter level, 1-100
+REG_DECIMALS  = 0x0008   # decimal-point setting, 0-4 (sensor parameter 03)
+REG_DIRECTION = 0x0012   # torque direction: 0 = default, 1 = opposite
+REG_FACTOR    = 0x001A   # calibration factor
+
 
 # ---------------------------------------------------------------------------
 # Sensor access
@@ -109,7 +115,30 @@ class RealSensor:
     def __init__(self, args):
         self.inst = make_instrument(args.port, args.baud, args.slave,
                                     args.stopbits)
-        self.torque_scale = 10 ** (-args.decimals)
+        decimals = args.decimals   # None unless --decimals was given
+        try:
+            sensor_dec = self.inst.read_long(REG_DECIMALS, functioncode=3)
+            filt       = self.inst.read_long(REG_FILTER, functioncode=3)
+            direction  = self.inst.read_long(REG_DIRECTION, functioncode=3)
+            factor     = self.inst.read_long(REG_FACTOR, functioncode=3)
+            if not 0 <= sensor_dec <= 4:
+                raise ValueError(f"implausible decimals value {sensor_dec}")
+        except Exception as e:
+            if decimals is None:
+                decimals = 2
+            print(f"Could not read sensor config ({e});\n"
+                  f"  assuming decimals={decimals}. If logging also fails, "
+                  f"check wiring and sensor settings.")
+        else:
+            print(f"Sensor config: decimals={sensor_dec}, filter={filt}, "
+                  f"direction={'opposite' if direction else 'default'}, "
+                  f"factor={factor}")
+            if decimals is None:
+                decimals = sensor_dec
+            elif decimals != sensor_dec:
+                print(f"Note: --decimals {decimals} overrides the sensor's "
+                      f"own setting of {sensor_dec}.")
+        self.torque_scale = 10 ** (-decimals)
 
     def read(self):
         raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
@@ -127,16 +156,23 @@ class DemoSensor:
     """Generates plausible fake data so you can test without hardware."""
     def __init__(self, _args):
         self.t0 = time.monotonic()
+        self.torque_offset = 0.0
+
+    def _raw_torque(self):
+        t = time.monotonic() - self.t0
+        return 12 + 4 * math.sin(t / 3)
 
     def read(self):
         t = time.monotonic() - self.t0
-        torque = 12 + 4 * math.sin(t / 3) + random.gauss(0, 0.15)
+        torque = (self._raw_torque() - self.torque_offset
+                  + random.gauss(0, 0.15))
         speed  = 1450 + 60 * math.sin(t / 7) + random.gauss(0, 5)
         power  = torque * speed * 2 * math.pi / 60  # P = T * omega
         return torque, speed, power
 
     def tare(self):
-        pass
+        # Mimic the real sensor: whatever is measured now becomes zero.
+        self.torque_offset = self._raw_torque()
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +203,7 @@ class Logger:
         self.sensor = sensor
         self.args = args
         self.stop_event = threading.Event()
+        self.tare_request = threading.Event()   # set by the plot's T key
         self.n_ok = 0
         self.n_err = 0
         # Ring buffers shared with the plot (last ~plot_window seconds)
@@ -203,6 +240,10 @@ class Logger:
         while not self.stop_event.is_set():
             loop_start = time.monotonic()
             try:
+                if self.tare_request.is_set():
+                    self.tare_request.clear()
+                    self.sensor.tare()
+                    print("\nTared: current load is the new zero point.")
                 torque, speed, power = self.sensor.read()
                 ts = datetime.now(timezone.utc).isoformat(
                     timespec="milliseconds")
@@ -301,6 +342,16 @@ def run_plot(logger):
             f"(ok {logger.n_ok} / err {logger.n_err})")
         return line_torque, line_speed, line_power
 
+    def on_key(event):
+        # The serial port belongs to the logger thread, so only raise a
+        # flag here; the logger tares between two reads.
+        if event.key in ("t", "T"):
+            logger.tare_request.set()
+
+    fig.canvas.mpl_connect("key_press_event", on_key)
+    fig.text(0.995, 0.005, "T = tare (set new zero)", ha="right",
+             va="bottom", fontsize=8, alpha=0.6)
+
     ani = FuncAnimation(fig, update, interval=200, cache_frame_data=False)
     plt.tight_layout()
     plt.show()   # blocks until the window is closed
@@ -317,8 +368,10 @@ def main():
     ap.add_argument("--baud", type=int, default=38400)
     ap.add_argument("--slave", type=int, default=1)
     ap.add_argument("--stopbits", type=int, default=2, choices=[1, 2])
-    ap.add_argument("--decimals", type=int, default=2,
-                    help="Sensor 'decimal point' setting (default 2)")
+    ap.add_argument("--decimals", type=int, default=None,
+                    help="Override the sensor's decimal-point setting "
+                         "(parameter 03). Normally not needed: it is read "
+                         "from the sensor at startup (2 if that fails)")
     ap.add_argument("--interval", type=float, default=0.2,
                     help="Polling interval in seconds (default 0.2 = 5 Hz)")
     ap.add_argument("--db", default="dyn200_data.sqlite")

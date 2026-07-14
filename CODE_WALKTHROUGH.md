@@ -88,9 +88,13 @@ self.torque_scale = 10 ** (-args.decimals)
 ```
 
 The sensor transmits torque as an integer; where the decimal point goes is
-a *sensor-side display setting* (parameter 03). With `--decimals 2`, a raw
-value of `1234` means `12.34` N·m. If readings are ever off by exactly
-10× or 100×, this mismatch is why.
+a *sensor-side display setting* (parameter 03). A raw value of `1234` with
+2 decimals means `12.34` N·m. The constructor therefore asks the sensor
+itself: it reads the decimals register (plus filter, torque direction, and
+calibration factor) and prints them as a one-line config banner, so every
+run records how the sensor was set up and the scale is always right.
+`--decimals` still exists as a manual override, and if the config read
+fails the code falls back to 2 with a warning.
 
 `read()` performs three Modbus transactions:
 

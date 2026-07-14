@@ -55,8 +55,13 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
 - **Serial defaults:** 38400 baud, **8 data bits, no parity, 2 stop bits (8N2)**,
   slave address 1.
 - The sensor must have **parameter 09 = 1** (Modbus RTU mode) or it won't talk.
-- `--decimals` must match the sensor's **parameter 03** (decimal-point setting,
-  shown on the OLED). A mismatch makes torque read off by 10× / 100×.
+- The torque scale (**parameter 03**, decimal-point setting) is **read from
+  the sensor at startup** (register `0x0008`), along with filter, direction,
+  and factor (`0x0006`, `0x0012`, `0x001A`) — printed as a config banner.
+  `--decimals` overrides it; if the config read fails, fallback is 2.
+- **Tare mid-run:** pressing **T** in the plot window sets
+  `logger.tare_request` (a `threading.Event`); the logger thread performs the
+  tare between reads. Never call the sensor from the plot thread directly.
 
 ## Code map
 

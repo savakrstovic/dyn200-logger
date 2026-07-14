@@ -67,11 +67,16 @@ Useful options:
 | `--csv run1.csv` | Also append samples to a CSV file |
 | `--csv-excel` | CSV dialect for European-locale Excel (semicolons, decimal commas) |
 | `--tare` | Zero the sensor before logging (same as long-press K3) |
-| `--decimals 2` | Match the sensor's decimal-point setting (default 2) |
+| `--decimals 2` | Override the sensor's decimal-point setting (normally read automatically at startup) |
 | `--plot-window 60` | Seconds of history shown in the live plot |
 | `--db mydata.sqlite` | Database file name |
 
 Close the plot window (or press Ctrl+C when not plotting) to stop.
+
+While the plot is open, press **T** to tare — the current load becomes
+the new zero point, without restarting the logger. On connect, the
+logger also prints the sensor's configuration (decimals, filter,
+direction, factor) so every run records how the sensor was set up.
 
 ## Analyzing logged data
 
@@ -88,7 +93,9 @@ df.plot(x="ts_utc", y="torque_nm")
 
 - **Timeout / CRC errors:** swap A and B wires (most common cause), check
   baud rate and stop bits, confirm sensor parameter 09 = 1 (Modbus mode).
-- **Torque values off by 10x/100x:** adjust `--decimals` to match the
-  sensor's decimal-point setting (parameter 03, shown on the OLED).
+- **Torque values off by 10x/100x:** shouldn't happen anymore — the
+  decimal setting is read from the sensor at startup. If it does (e.g.
+  the config read failed), pass `--decimals` to match the sensor's
+  parameter 03 (shown on the OLED).
 - **Can't find the port (Windows):** Device Manager → Ports (COM & LPT),
   unplug/replug the adapter to see which COM number appears.
