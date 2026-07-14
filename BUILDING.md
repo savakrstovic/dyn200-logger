@@ -99,15 +99,26 @@ this build — the plot run logged 241 samples with 0 errors.
 
 ### 6. Deploy
 
-Copy `dist\dyn200_logger.exe` to the target PC. Run it from a terminal
-(cmd or PowerShell) so you can see the output and pass flags:
+Copy `dist\dyn200_logger.exe` **plus the two launcher scripts**
+(`run_demo.bat`, `run_sensor.bat`, in the repo root) into one folder on
+the target PC. Then just double-click:
+
+- `run_demo.bat` — demo mode with live plot (no hardware).
+- `run_sensor.bat` — real sensor with live plot. The logger lists the
+  serial ports it finds and asks which one to use, so nobody has to know
+  the COM number in advance.
+
+You can also run the exe from a terminal (cmd or PowerShell) to pass
+flags yourself:
 
 ```
 dyn200_logger.exe --port COM11 --plot
 ```
 
-Find the right COM number in Device Manager → Ports (COM & LPT), or by
-unplugging/replugging the RS485 adapter and watching which entry appears.
+If `--port` is omitted (and `--demo` isn't used), the port picker
+appears. To find the COM number manually: Device Manager → Ports
+(COM & LPT), or unplug/replug the RS485 adapter and watch which entry
+appears.
 
 ## Rebuilding after code changes
 

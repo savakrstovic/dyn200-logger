@@ -20,6 +20,19 @@ Sensor communication defaults: **38400 baud, 8 data bits, no parity,
 2 stop bits, slave address 1**. Parameter 09 on the sensor must be set to
 `1` (Modbus RTU mode).
 
+## Quick start (no Python needed)
+
+If you have the standalone build (see [BUILDING.md](BUILDING.md)), copy
+`dyn200_logger.exe` together with the two launcher scripts to the target
+PC and double-click:
+
+- **`run_demo.bat`** — fake data + live plot, no hardware needed.
+- **`run_sensor.bat`** — real sensor + live plot. It first lists the
+  serial ports found on the PC so you can pick the USB-RS485 adapter.
+
+Close the plot window to stop logging; the data lands in
+`dyn200_data.sqlite` next to the scripts.
+
 ## Install
 
 Requires Python 3.10+.
@@ -42,6 +55,9 @@ Log from the real sensor with a live plot:
 python dyn200_logger.py --port COM5 --plot        # Windows
 python dyn200_logger.py --port /dev/ttyUSB0 --plot  # Linux
 ```
+
+Don't know the port? Leave out `--port` — the logger lists the serial
+ports it finds (with descriptions) and asks you to pick one.
 
 Useful options:
 

@@ -61,6 +61,39 @@ def make_instrument(port, baud, slave, stopbits, timeout=0.3):
     return inst
 
 
+def pick_port():
+    """List the serial ports found on this PC and let the user pick one.
+    Used when --port wasn't given (and we're not in --demo mode)."""
+    from serial.tools import list_ports
+    ports = sorted(list_ports.comports(), key=lambda p: p.device)
+    if not ports:
+        sys.exit("No serial ports found. Is the USB-RS485 adapter plugged "
+                 "in? (Check Device Manager -> Ports (COM & LPT).)")
+
+    print("Serial ports found:")
+    for i, p in enumerate(ports, start=1):
+        print(f"  {i}. {p.device}  ({p.description})")
+
+    while True:
+        answer = input(f"Select port [1-{len(ports)}, Enter = 1]: ").strip()
+        if answer == "":
+            choice = 1
+        else:
+            try:
+                choice = int(answer)
+            except ValueError:
+                # Also accept typing the name itself, e.g. "COM11"
+                matches = [p for p in ports
+                           if p.device.lower() == answer.lower()]
+                if matches:
+                    return matches[0].device
+                print("Please enter a number from the list.")
+                continue
+        if 1 <= choice <= len(ports):
+            return ports[choice - 1].device
+        print("Please enter a number from the list.")
+
+
 class RealSensor:
     def __init__(self, args):
         self.inst = make_instrument(args.port, args.baud, args.slave,
@@ -264,7 +297,9 @@ def run_plot(logger):
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description="DYN-200 torque sensor logger")
-    ap.add_argument("--port", help="Serial port, e.g. /dev/ttyUSB0 or COM5")
+    ap.add_argument("--port",
+                    help="Serial port, e.g. COM5 or /dev/ttyUSB0. If omitted "
+                         "(and not --demo), lists detected ports to pick from")
     ap.add_argument("--baud", type=int, default=38400)
     ap.add_argument("--slave", type=int, default=1)
     ap.add_argument("--stopbits", type=int, default=2, choices=[1, 2])
@@ -287,7 +322,8 @@ def main():
     args = ap.parse_args()
 
     if not args.demo and not args.port:
-        ap.error("--port is required (or use --demo to test without hardware)")
+        # No port given: show what's connected and ask, instead of erroring.
+        args.port = pick_port()
 
     sensor = DemoSensor(args) if args.demo else RealSensor(args)
 
