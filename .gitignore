@@ -4,7 +4,8 @@ dist/
 *.spec
 
 # Logged data — measurement runs don't belong in version control
-*.sqlite
+# (*.sqlite* also catches SQLite's temporary -journal/-wal/-shm files)
+*.sqlite*
 *.csv
 
 # Python cruft
