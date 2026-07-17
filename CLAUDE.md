@@ -47,7 +47,7 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
 | Address  | Value  | Notes |
 |----------|--------|-------|
 | `0x0000` | Torque | 32-bit **signed**, scaled by `10^-decimals` → N·m |
-| `0x0002` | Speed  | 32-bit unsigned → RPM |
+| `0x0002` | Speed  | 32-bit unsigned, **0.1 RPM units** → raw/10 = RPM. The manual says "RPM" but is wrong — verified against the OLED 2026-07-17 |
 | `0x0004` | Power  | 32-bit signed, raw × 10 → watts ("Power/10W") |
 
 - **Tare / zero:** coil `0x0000` with **function code 05H** (`COIL_TARE`).

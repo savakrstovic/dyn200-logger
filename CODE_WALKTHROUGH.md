@@ -107,7 +107,10 @@ raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
 - `signed=True` for torque and power because both can be negative
   (direction of twist; power flowing "backwards"). Speed is unsigned.
 - Scaling: torque × 10^-decimals → N·m; power × 10 → watts (the manual
-  says the register holds "power / 10 W"); speed is RPM as-is.
+  says the register holds "power / 10 W"); speed ÷ 10 → RPM. The manual
+  claims the speed register is plain RPM, but the real sensor sends
+  0.1 RPM units — found by comparing against the OLED display. Trust
+  the hardware over the manual.
 
 `tare()` writes bit 1 to coil 0 with function code 05H — the electronic
 equivalent of long-pressing the K3 button on the sensor: "current load is

@@ -10,7 +10,9 @@ live scrolling plot while logging.
 
 Register map (from the DYN-200 manual, function code 03H):
     0x0000  Torque  (32-bit signed, scaled by the "decimal" setting, N·m)
-    0x0002  Speed   (32-bit,        RPM)
+    0x0002  Speed   (32-bit, 0.1 RPM units -> raw / 10 = RPM; the manual
+                     says "RPM" but the OLED shows 10x less than the raw
+                     register value, verified by hand 2026-07-17)
     0x0004  Power   (32-bit,        "Power/10W", i.e. raw * 10 = watts)
 
 Sensor serial defaults: 38400 baud, 8 data bits, no parity, 2 stop bits,
@@ -40,7 +42,7 @@ from datetime import datetime, timezone
 # Register addresses (per DYN-200 manual)
 # ---------------------------------------------------------------------------
 REG_TORQUE = 0x0000   # 2 registers, signed
-REG_SPEED  = 0x0002   # 2 registers, unsigned
+REG_SPEED  = 0x0002   # 2 registers, unsigned, 0.1 RPM units (not RPM!)
 REG_POWER  = 0x0004   # 2 registers, signed ("Power/10W")
 COIL_TARE  = 0x0000   # function 05H: build new zero (tare)
 
@@ -144,8 +146,11 @@ class RealSensor:
         raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
         raw_speed  = self.inst.read_long(REG_SPEED,  functioncode=3, signed=False)
         raw_power  = self.inst.read_long(REG_POWER,  functioncode=3, signed=True)
+        # Speed: the manual says the register is RPM, but the sensor
+        # actually sends 0.1 RPM units (verified against the OLED display,
+        # which showed 10x less than the raw register value).
         return (raw_torque * self.torque_scale,   # N·m
-                float(raw_speed),                 # RPM
+                raw_speed / 10.0,                 # RPM
                 raw_power * 10.0)                 # W
 
     def tare(self):
