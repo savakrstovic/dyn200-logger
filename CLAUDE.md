@@ -53,7 +53,9 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
 - **Tare / zero:** coil `0x0000` with **function code 05H** (`COIL_TARE`).
   Exposed via `--tare`, which zeroes the sensor before logging starts.
 - **Serial defaults:** 38400 baud, **8 data bits, no parity, 2 stop bits (8N2)**,
-  slave address 1.
+  slave address 1. **Auto-baud:** if the config read gets no answer,
+  `RealSensor` tries all four supported rates (38400/19200/14400/9600) and
+  keeps the one that responds — the user's actual sensor is set to **19200**.
 - The sensor must have **parameter 09 = 1** (Modbus RTU mode) or it won't talk.
 - The torque scale (**parameter 03**, decimal-point setting) is **read from
   the sensor at startup** (register `0x0008`), along with filter, direction,

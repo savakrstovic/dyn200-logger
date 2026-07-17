@@ -114,33 +114,63 @@ def pick_port():
 
 
 class RealSensor:
+    # The four baud rates the DYN-200 supports (its parameter 08)
+    BAUD_RATES = [38400, 19200, 14400, 9600]
+
     def __init__(self, args):
         self.inst = make_instrument(args.port, args.baud, args.slave,
                                     args.stopbits)
+        cfg = self._read_config()
+        if cfg is None:
+            # No answer - maybe the sensor is set to a different baud
+            # rate. Try the others (a wrong rate fails in ~0.3 s).
+            for baud in self.BAUD_RATES:
+                if baud == args.baud:
+                    continue
+                self.inst.serial.baudrate = baud
+                cfg = self._read_config()
+                if cfg is not None:
+                    print(f"No answer at {args.baud} baud - sensor found "
+                          f"at {baud} baud (its parameter 08).")
+                    break
+            else:
+                self.inst.serial.baudrate = args.baud
+
         decimals = args.decimals   # None unless --decimals was given
-        try:
-            sensor_dec = self.inst.read_long(REG_DECIMALS, functioncode=3)
-            filt       = self.inst.read_long(REG_FILTER, functioncode=3)
-            direction  = self.inst.read_long(REG_DIRECTION, functioncode=3)
-            factor     = self.inst.read_long(REG_FACTOR, functioncode=3)
-            if not 0 <= sensor_dec <= 4:
-                raise ValueError(f"implausible decimals value {sensor_dec}")
-        except Exception as e:
+        if cfg is None:
             if decimals is None:
                 decimals = 2
-            print(f"Could not read sensor config ({e});\n"
-                  f"  assuming decimals={decimals}. If logging also fails, "
-                  f"check wiring and sensor settings.")
+            print(f"Could not read sensor config at any baud rate; "
+                  f"assuming decimals={decimals}.\n"
+                  f"  If logging also fails, check wiring and sensor "
+                  f"settings.")
         else:
-            print(f"Sensor config: decimals={sensor_dec}, filter={filt}, "
-                  f"direction={'opposite' if direction else 'default'}, "
-                  f"factor={factor}")
+            print(f"Sensor config: decimals={cfg['decimals']}, "
+                  f"filter={cfg['filter']}, "
+                  f"direction={'opposite' if cfg['direction'] else 'default'}, "
+                  f"factor={cfg['factor']}")
             if decimals is None:
-                decimals = sensor_dec
-            elif decimals != sensor_dec:
+                decimals = cfg["decimals"]
+            elif decimals != cfg["decimals"]:
                 print(f"Note: --decimals {decimals} overrides the sensor's "
-                      f"own setting of {sensor_dec}.")
+                      f"own setting of {cfg['decimals']}.")
         self.torque_scale = 10 ** (-decimals)
+
+    def _read_config(self):
+        """Read the config registers; return a dict, or None if the sensor
+        doesn't answer (or answers nonsense)."""
+        try:
+            cfg = {
+                "decimals":  self.inst.read_long(REG_DECIMALS, functioncode=3),
+                "filter":    self.inst.read_long(REG_FILTER, functioncode=3),
+                "direction": self.inst.read_long(REG_DIRECTION, functioncode=3),
+                "factor":    self.inst.read_long(REG_FACTOR, functioncode=3),
+            }
+        except Exception:
+            return None
+        if not 0 <= cfg["decimals"] <= 4:
+            return None   # got bytes, but not believable ones
+        return cfg
 
     def read(self):
         raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
@@ -409,7 +439,10 @@ def main():
         time.sleep(0.5)
 
     logger = Logger(sensor, args)
-    src = "DEMO data" if args.demo else f"{args.port} @ {args.baud} baud"
+    # Report the baud the connection actually uses (auto-baud may have
+    # picked a different one than requested)
+    src = ("DEMO data" if args.demo
+           else f"{args.port} @ {sensor.inst.serial.baudrate} baud")
     print(f"Logging from {src} -> {args.db}"
           + (f" and {args.csv}" if args.csv else ""))
 

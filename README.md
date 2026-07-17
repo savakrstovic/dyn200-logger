@@ -59,6 +59,11 @@ python dyn200_logger.py --port /dev/ttyUSB0 --plot  # Linux
 Don't know the port? Leave out `--port` — the logger lists the serial
 ports it finds (with descriptions) and asks you to pick one.
 
+Don't know the baud rate? You don't need to: if the sensor doesn't
+answer at the expected rate (default 38400), the logger automatically
+tries the other rates the DYN-200 supports and tells you which one
+worked.
+
 Useful options:
 
 | Flag | Meaning |
