@@ -13,7 +13,8 @@ Register map (from the DYN-200 manual, function code 03H):
     0x0002  Speed   (32-bit, 0.1 RPM units -> raw / 10 = RPM; the manual
                      says "RPM" but the OLED shows 10x less than the raw
                      register value, verified by hand 2026-07-17)
-    0x0004  Power   (32-bit,        "Power/10W", i.e. raw * 10 = watts)
+    0x0004  Power   (32-bit signed, raw = watts; the manual's "Power/10W"
+                     is wrong, verified against the OLED 2026-07-23)
 
 Sensor serial defaults: 38400 baud, 8 data bits, no parity, 2 stop bits,
 slave address 1.
@@ -43,7 +44,7 @@ from datetime import datetime, timezone
 # ---------------------------------------------------------------------------
 REG_TORQUE = 0x0000   # 2 registers, signed
 REG_SPEED  = 0x0002   # 2 registers, unsigned, 0.1 RPM units (not RPM!)
-REG_POWER  = 0x0004   # 2 registers, signed ("Power/10W")
+REG_POWER  = 0x0004   # 2 registers, signed; raw = watts (NOT "Power/10W")
 COIL_TARE  = 0x0000   # function 05H: build new zero (tare)
 
 # Configuration registers (also read with function code 03H)
@@ -176,12 +177,15 @@ class RealSensor:
         raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
         raw_speed  = self.inst.read_long(REG_SPEED,  functioncode=3, signed=False)
         raw_power  = self.inst.read_long(REG_POWER,  functioncode=3, signed=True)
-        # Speed: the manual says the register is RPM, but the sensor
-        # actually sends 0.1 RPM units (verified against the OLED display,
-        # which showed 10x less than the raw register value).
+        # Speed AND power both use scalings the manual gets wrong; both
+        # verified against the OLED display and a physics check (the
+        # mechanical power |torque| * omega must match the power reading):
+        #   speed: register is in 0.1 RPM units  -> raw / 10 = RPM
+        #   power: register is already in watts   -> raw as-is. The manual
+        #          labels it "Power/10W"; multiplying by 10 read 10x high.
         return (raw_torque * self.torque_scale,   # N·m
                 raw_speed / 10.0,                 # RPM
-                raw_power * 10.0)                 # W
+                float(raw_power))                 # W
 
     def tare(self):
         self.inst.write_bit(COIL_TARE, 1, functioncode=5)

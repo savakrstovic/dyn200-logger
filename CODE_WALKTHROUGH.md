@@ -49,7 +49,7 @@ The constants mirror the DYN-200 manual's register map:
 ```python
 REG_TORQUE = 0x0000   # 2 registers, signed
 REG_SPEED  = 0x0002   # 2 registers, unsigned
-REG_POWER  = 0x0004   # 2 registers, signed ("Power/10W")
+REG_POWER  = 0x0004   # 2 registers, signed; raw = watts (NOT "Power/10W")
 COIL_TARE  = 0x0000   # function 05H: build new zero (tare)
 ```
 
@@ -106,11 +106,13 @@ raw_torque = self.inst.read_long(REG_TORQUE, functioncode=3, signed=True)
   32-bit value (the "two registers per value" fact from section 1).
 - `signed=True` for torque and power because both can be negative
   (direction of twist; power flowing "backwards"). Speed is unsigned.
-- Scaling: torque × 10^-decimals → N·m; power × 10 → watts (the manual
-  says the register holds "power / 10 W"); speed ÷ 10 → RPM. The manual
-  claims the speed register is plain RPM, but the real sensor sends
-  0.1 RPM units — found by comparing against the OLED display. Trust
-  the hardware over the manual.
+- Scaling: torque × 10^-decimals → N·m; speed ÷ 10 → RPM; power = raw
+  watts (no scaling). The manual is wrong about **both** speed and power:
+  it calls the speed register "RPM" (really 0.1 RPM units) and the power
+  register "Power/10W" (really plain watts). Both were caught by checking
+  the logged values against the sensor's own OLED display, and power was
+  double-confirmed by physics — mechanical power |torque| · ω must equal
+  the power reading. Trust the hardware over the manual.
 
 `tare()` writes bit 1 to coil 0 with function code 05H — the electronic
 equivalent of long-pressing the K3 button on the sensor: "current load is
