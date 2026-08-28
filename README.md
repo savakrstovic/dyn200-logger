@@ -85,14 +85,32 @@ direction, factor) so every run records how the sensor was set up.
 
 ## Analyzing logged data
 
+Every sample is stored with **two** time columns:
+
+| Column | Meaning |
+|---|---|
+| `ts_utc` | Absolute UTC timestamp — says *when* the sample was taken |
+| `t_s` | **Seconds since that run started** (0.000, 0.200, 0.400, …) — the ready-made x axis for charts |
+
+Use `t_s` whenever you want a diagram with time on the horizontal axis.
+In Excel, the CSV columns are `ts_utc | t_s | torque_nm | speed_rpm |
+power_w`, so selecting columns **B through E** and inserting a scatter
+chart gives you `t_s` on the x axis and the three measurements as
+series — no formula needed.
+
 The SQLite file loads straight into pandas:
 
 ```python
 import sqlite3, pandas as pd
 df = pd.read_sql("SELECT * FROM samples", sqlite3.connect("dyn200_data.sqlite"),
                  parse_dates=["ts_utc"])
-df.plot(x="ts_utc", y="torque_nm")
+df.plot(x="t_s", y="torque_nm")     # seconds on the x axis
 ```
+
+Note that a database accumulates *many* runs, and `t_s` restarts from
+zero on each one — so filter to a single run (by `ts_utc` range) before
+plotting against `t_s`. Each CSV holds exactly one run, so it needs no
+filtering.
 
 ## Troubleshooting
 

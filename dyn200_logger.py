@@ -224,11 +224,18 @@ def open_db(path):
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             ts_utc     TEXT    NOT NULL,
             t_mono     REAL    NOT NULL,
+            t_s        REAL,
             torque_nm  REAL,
             speed_rpm  REAL,
             power_w    REAL
         )
     """)
+    # Databases written before t_s existed only have the old columns, and
+    # SQLite has no "ADD COLUMN IF NOT EXISTS" - so look before leaping.
+    # Rows logged back then keep t_s = NULL; new rows get the real value.
+    columns = [row[1] for row in con.execute("PRAGMA table_info(samples)")]
+    if "t_s" not in columns:
+        con.execute("ALTER TABLE samples ADD COLUMN t_s REAL")
     con.execute("CREATE INDEX IF NOT EXISTS idx_samples_ts ON samples(ts_utc)")
     con.commit()
     return con
@@ -270,8 +277,8 @@ class Logger:
             csv_writer = csv.writer(
                 csv_file, delimiter=";" if args.csv_excel else ",")
             if new_file:
-                csv_writer.writerow(["ts_utc", "torque_nm", "speed_rpm",
-                                     "power_w"])
+                csv_writer.writerow(["ts_utc", "t_s", "torque_nm",
+                                     "speed_rpm", "power_w"])
 
         last_commit = time.monotonic()
         t_start = time.monotonic()
@@ -287,19 +294,25 @@ class Logger:
                 ts = datetime.now(timezone.utc).isoformat(
                     timespec="milliseconds")
 
+                # Seconds since this run started: the ready-made x axis
+                # for Excel and pandas. Same clock the live plot uses, so
+                # the two always agree.
+                t_rel = loop_start - t_start
+
                 con.execute(
                     "INSERT INTO samples "
-                    "(ts_utc, t_mono, torque_nm, speed_rpm, power_w) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (ts, loop_start, torque, speed, power))
+                    "(ts_utc, t_mono, t_s, torque_nm, speed_rpm, power_w) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (ts, loop_start, t_rel, torque, speed, power))
                 if csv_writer:
-                    row = [f"{torque:.4f}", f"{speed:.1f}", f"{power:.1f}"]
+                    row = [f"{t_rel:.3f}", f"{torque:.4f}", f"{speed:.1f}",
+                           f"{power:.1f}"]
                     if args.csv_excel:
                         row = [v.replace(".", ",") for v in row]
                     csv_writer.writerow([ts] + row)
 
                 with self.lock:
-                    self.buf_t.append(loop_start - t_start)
+                    self.buf_t.append(t_rel)
                     self.buf_torque.append(torque)
                     self.buf_speed.append(speed)
                     self.buf_power.append(power)

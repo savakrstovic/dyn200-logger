@@ -10,7 +10,7 @@ A single-file Python data logger for a **DYN-200 dynamic torque sensor**
 stores each sample in an **SQLite** database, and optionally appends to CSV
 and/or shows a **live scrolling matplotlib plot** while logging.
 
-The whole program is [dyn200_logger.py](dyn200_logger.py) (~317 lines).
+The whole program is [dyn200_logger.py](dyn200_logger.py) (~490 lines).
 User-facing docs are in [README.md](README.md); dependencies in
 [requirements.txt](requirements.txt) (minimalmodbus, pyserial, matplotlib).
 
@@ -74,11 +74,12 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
   `import minimalmodbus`/`serial` are done inside the function so `--demo`
   works even if those packages aren't installed.
 - `open_db()` — creates the `samples` table
-  (`ts_utc, t_mono, torque_nm, speed_rpm, power_w`) and an index; returns a
+  (`ts_utc, t_mono, t_s, torque_nm, speed_rpm, power_w`) and an index;
+  adds `t_s` to older databases via `ALTER TABLE`; returns a
   connection.
 - `Logger.run()` — the acquisition loop: read → insert (+ optional CSV) →
   update shared ring buffers → sleep the remainder of `--interval`.
-- `run_plot()` — matplotlib `FuncAnimation` live plot (torque + speed).
+- `run_plot()` — matplotlib `FuncAnimation` live plot (torque, speed, power).
 - `main()` — argument parsing and wiring.
 
 **Important design points to preserve when editing the loop or plot:**
