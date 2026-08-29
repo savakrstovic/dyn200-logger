@@ -1,7 +1,16 @@
 @echo off
 rem Starts the DYN-200 logger on the REAL sensor with the live plot.
 rem It first lists the serial ports found on this PC so you can pick the
-rem USB-RS485 adapter. Close the plot window to stop logging.
+rem USB-RS485 adapter.
+rem
+rem In the plot window:
+rem   Start / Stop  save one CSV per measurement, into this folder
+rem   View          opens the measurement you just saved as a diagram
+rem   Tare          sets the current load as the new zero
+rem
+rem The SQLite database records everything continuously either way, so
+rem nothing is lost if you forget to press Start. Close the window to
+rem stop logging (a measurement still running is saved, not discarded).
 
 if exist "%~dp0dyn200_logger.exe" (
     set "EXE=%~dp0dyn200_logger.exe"
@@ -14,11 +23,10 @@ if exist "%~dp0dyn200_logger.exe" (
     exit /b 1
 )
 
-rem Timestamp for the output files, e.g. 2026-07-14_10-30-00 (PowerShell
-rem is used because %date%/%time% formats vary with Windows language).
-for /f %%i in ('powershell -NoProfile -Command "Get-Date -Format yyyy-MM-dd_HH-mm-ss"') do set "TS=%%i"
+rem This script's own folder. %~dp0 ends with a backslash, which would
+rem escape the closing quote when passed as "%~dp0", so trim it off.
+set "HERE=%~dp0"
+set "HERE=%HERE:~0,-1%"
 
-rem Each run gets its own CSV (opens directly in Excel) next to this
-rem script. The SQLite database keeps everything as well.
-"%EXE%" --plot --csv "%~dp0dyn200_run_%TS%.csv" --csv-excel
+"%EXE%" --plot --csv-dir "%HERE%" --csv-excel
 pause

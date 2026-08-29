@@ -23,15 +23,64 @@ Sensor communication defaults: **38400 baud, 8 data bits, no parity,
 ## Quick start (no Python needed)
 
 If you have the standalone build (see [BUILDING.md](BUILDING.md)), copy
-`dyn200_logger.exe` together with the two launcher scripts to the target
-PC and double-click:
+`dyn200_logger.exe` together with the three launcher scripts to the
+target PC and double-click:
 
-- **`run_demo.bat`** — fake data + live plot, no hardware needed.
+- **`run_demo.bat`** — fake data + live plot, no hardware needed. Good
+  for trying the buttons and seeing what a CSV looks like.
 - **`run_sensor.bat`** — real sensor + live plot. It first lists the
   serial ports found on the PC so you can pick the USB-RS485 adapter.
+- **`view_data.bat`** — opens a saved run as a diagram. No logging, no
+  sensor, no Excel needed.
 
 Close the plot window to stop logging; the data lands in
 `dyn200_data.sqlite` next to the scripts.
+
+## Recording measurements
+
+The live plot window has four buttons along the bottom:
+
+| Button | What it does |
+|---|---|
+| **● Start** | Begins a measurement. A new `dyn200_run_<timestamp>.csv` is opened and every sample from now on goes into it. |
+| **■ Stop** | Ends the measurement and closes that CSV. Press Start again for the next one. |
+| **View** | Opens the measurement you just saved as a diagram, in its own window. Logging carries on behind it. |
+| **Tare** | Sets the current load as the new zero point. |
+
+The status on the right shows `● RECORDING - n samples` while a
+measurement is running, and how many you have saved when it is not.
+Keyboard shortcuts: **R** starts/stops recording, **T** tares.
+
+This replaces the old "close the window to get your CSV" workflow — the
+window now stays open for a whole session and you save each measurement
+as its own file, with its own time axis starting at zero.
+
+Two things worth knowing:
+
+- **The database records everything, continuously**, whether or not you
+  are recording a measurement. The buttons only control the CSV files,
+  so forgetting to press Start never loses data from the archive.
+- **Closing the window mid-measurement saves it** rather than throwing
+  it away.
+
+## Viewing a saved run as a diagram
+
+You do not need Excel to look at a measurement. Double-click
+**`view_data.bat`** (or run `dyn200_logger.py --view`): it lists the CSV
+files in the folder, newest first, and plots the one you pick as the
+same three panels — torque, speed and power against time.
+
+```bash
+python dyn200_logger.py --view                    # pick from a list
+python dyn200_logger.py --view dyn200_run_...csv  # open one directly
+```
+
+The window's toolbar gives you zoom, pan, and save-as-PNG. The title
+line summarises the run: duration, sample count, mean and maximum
+torque, mean speed and mean power.
+
+Older four-column CSVs from before the `t_s` column existed open fine
+too — the time axis is rebuilt from their timestamps.
 
 ## Install
 
@@ -69,8 +118,11 @@ Useful options:
 | Flag | Meaning |
 |---|---|
 | `--interval 0.1` | Sample every 0.1 s (10 Hz). Default 0.2 s |
-| `--csv run1.csv` | Also append samples to a CSV file |
+| `--csv run1.csv` | Also append *every* sample to one CSV, continuously (independent of the Start/Stop buttons) |
 | `--csv-excel` | CSV dialect for European-locale Excel (semicolons, decimal commas) |
+| `--csv-dir data\` | Folder the Start/Stop buttons write measurements into (default: current folder) |
+| `--csv-prefix test` | Name stem for those files (default `dyn200_run`) |
+| `--view [FILE]` | Don't log — open a saved CSV as a diagram. No file name means pick from a list |
 | `--tare` | Zero the sensor before logging (same as long-press K3) |
 | `--decimals 2` | Override the sensor's decimal-point setting (normally read automatically at startup) |
 | `--plot-window 60` | Seconds of history shown in the live plot |
@@ -78,10 +130,11 @@ Useful options:
 
 Close the plot window (or press Ctrl+C when not plotting) to stop.
 
-While the plot is open, press **T** to tare — the current load becomes
-the new zero point, without restarting the logger. On connect, the
-logger also prints the sensor's configuration (decimals, filter,
-direction, factor) so every run records how the sensor was set up.
+While the plot is open, press **T** (or the Tare button) to tare — the
+current load becomes the new zero point, without restarting the logger.
+On connect, the logger also prints the sensor's configuration (decimals,
+filter, direction, factor) so every run records how the sensor was set
+up.
 
 ## Analyzing logged data
 

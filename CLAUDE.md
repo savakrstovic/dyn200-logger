@@ -10,7 +10,7 @@ A single-file Python data logger for a **DYN-200 dynamic torque sensor**
 stores each sample in an **SQLite** database, and optionally appends to CSV
 and/or shows a **live scrolling matplotlib plot** while logging.
 
-The whole program is [dyn200_logger.py](dyn200_logger.py) (~490 lines).
+The whole program is [dyn200_logger.py](dyn200_logger.py) (~770 lines).
 User-facing docs are in [README.md](README.md); dependencies in
 [requirements.txt](requirements.txt) (minimalmodbus, pyserial, matplotlib).
 
@@ -21,6 +21,7 @@ runs with no hardware attached. Always verify changes this way.**
 
 ```bash
 python dyn200_logger.py --demo --plot     # full stack, fake data, live plot
+python dyn200_logger.py --view            # pick a saved CSV, plot it
 ```
 
 Caveat for automated / non-interactive checks: `--plot` opens a **blocking**
@@ -61,9 +62,9 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
   the sensor at startup** (register `0x0008`), along with filter, direction,
   and factor (`0x0006`, `0x0012`, `0x001A`) — printed as a config banner.
   `--decimals` overrides it; if the config read fails, fallback is 2.
-- **Tare mid-run:** pressing **T** in the plot window sets
-  `logger.tare_request` (a `threading.Event`); the logger thread performs the
-  tare between reads. Never call the sensor from the plot thread directly.
+- **Tare mid-run:** pressing **T** (or the Tare button) in the plot window
+  sets `logger.tare_request` (a `threading.Event`); the logger thread performs
+  the tare between reads. Never call the sensor from the plot thread directly.
 
 ## Code map
 
@@ -77,13 +78,39 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
   (`ts_utc, t_mono, t_s, torque_nm, speed_rpm, power_w`) and an index;
   adds `t_s` to older databases via `ALTER TABLE`; returns a
   connection.
-- `Logger.run()` — the acquisition loop: read → insert (+ optional CSV) →
-  update shared ring buffers → sleep the remainder of `--interval`.
-- `run_plot()` — matplotlib `FuncAnimation` live plot (torque, speed, power).
-- `main()` — argument parsing and wiring.
+- `Logger.run()` — the acquisition loop: read → insert (+ optional CSV,
+  + the current measurement's CSV) → update shared ring buffers → sleep the
+  remainder of `--interval`.
+- `Logger._segment_start()` / `._segment_stop()` — open and close one
+  *measurement* CSV (`<csv_prefix>_<timestamp>.csv` in `--csv-dir`). Called
+  only from the logger thread, in response to the button flags.
+- `read_run_csv()` — parse a saved CSV back into lists. Sniffs the dialect
+  from the header (`;` → Excel form with decimal commas) and rebuilds the
+  time axis from timestamps for pre-`t_s` four-column files. Short trailing
+  lines are dropped, so a file cut off mid-write still opens.
+- `plot_run(path, blocking)` — three-panel diagram of one saved CSV, with a
+  summary line (duration, samples, mean/max torque, mean speed, mean power).
+  `blocking=False` is used by the View button so logging carries on.
+- `pick_csv()` — list the CSVs in a folder, newest first, and choose one
+  (same spirit as `pick_port()`). Used by `--view` with no file name.
+- `run_plot()` — matplotlib `FuncAnimation` live plot (torque, speed, power)
+  plus the Start / Stop / View / Tare buttons along the bottom.
+- `main()` — argument parsing and wiring. `--view` short-circuits everything
+  else: no sensor, no database, just `plot_run()`.
 
 **Important design points to preserve when editing the loop or plot:**
 
+- **Recording is button-driven.** The plot's Start/Stop buttons only set
+  `logger.start_record_request` / `.stop_record_request` (`threading.Event`s,
+  same pattern as `tare_request`); the **logger thread** opens and closes the
+  CSV between two reads. Never touch the segment file from the plot thread.
+  Each measurement CSV restarts its `t_s` at 0, while the database's `t_s`
+  stays relative to the whole run.
+- **The database always records**, recording or not — the buttons only govern
+  CSV files. `Logger.run()` calls `_segment_stop()` on the way out, so closing
+  the window mid-measurement saves that file rather than losing it.
+- **Button objects must be kept alive** or matplotlib garbage-collects them
+  and they stop responding; `run_plot()` stashes them on `fig._dyn200_buttons`.
 - **Threading:** with `--plot`, `Logger.run()` runs in a **daemon thread** and
   the plot runs on the main thread. `Logger.run()` **opens its own SQLite
   connection inside the thread** — sqlite connections must not cross threads.
