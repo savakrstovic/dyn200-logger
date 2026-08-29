@@ -38,13 +38,14 @@ Close the plot window to stop logging; the data lands in
 
 ## Recording measurements
 
-The live plot window has four buttons along the bottom:
+The live plot window has five buttons along the bottom:
 
 | Button | What it does |
 |---|---|
 | **● Start** | Begins a measurement. A new `dyn200_run_<timestamp>.csv` is opened and every sample from now on goes into it. |
 | **■ Stop** | Ends the measurement and closes that CSV. Press Start again for the next one. |
-| **View** | Opens the measurement you just saved as a diagram, in its own window. Logging carries on behind it. |
+| **View last** | Opens the measurement you just saved as a diagram, in its own window. Logging carries on behind it. |
+| **Open…** | Opens a normal file-picker so you can look at *any* saved run — including older ones, and files kept in other folders. |
 | **Tare** | Sets the current load as the new zero point. |
 
 The status on the right shows `● RECORDING - n samples` while a
@@ -65,10 +66,18 @@ Two things worth knowing:
 
 ## Viewing a saved run as a diagram
 
-You do not need Excel to look at a measurement. Double-click
-**`view_data.bat`** (or run `dyn200_logger.py --view`): it lists the CSV
-files in the folder, newest first, and plots the one you pick as the
-same three panels — torque, speed and power against time.
+You do not need Excel to look at a measurement. There are two ways in:
+
+- **While logging** — the **Open…** button in the live plot window. It
+  opens a normal file-picker, so you can browse to any folder (an
+  `Ispitivanja\...` subfolder, say) and open any run you have kept.
+  **View last** is the shortcut for the measurement you just finished.
+- **Without logging** — double-click **`view_data.bat`**, or run
+  `dyn200_logger.py --view`. Same file-picker, no sensor needed. If no
+  picker can be shown, it falls back to a numbered list in the console.
+
+Either way the run is plotted as the same three panels — torque, speed
+and power against time.
 
 ```bash
 python dyn200_logger.py --view                    # pick from a list

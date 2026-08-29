@@ -349,10 +349,19 @@ class Logger:
                     print("\nTared: current load is the new zero point.")
                 if self.start_record_request.is_set():
                     self.start_record_request.clear()
-                    self._segment_start()
+                    # A file that won't open (bad --csv-dir, read-only
+                    # folder, disk full) must say so plainly rather than
+                    # be counted as a sensor comms error below.
+                    try:
+                        self._segment_start()
+                    except Exception as e:
+                        print(f"\nCould not start recording: {e}")
                 if self.stop_record_request.is_set():
                     self.stop_record_request.clear()
-                    self._segment_stop()
+                    try:
+                        self._segment_stop()
+                    except Exception as e:
+                        print(f"\nCould not finish the measurement: {e}")
                 torque, speed, power = self.sensor.read()
                 ts = datetime.now(timezone.utc).isoformat(
                     timespec="milliseconds")
@@ -513,6 +522,50 @@ def plot_run(path, blocking=True):
     return fig
 
 
+def choose_csv_dialog(initial_dir=".", initial_file=None, parent=None):
+    """Show the operating system's own "open file" dialog for picking a
+    saved run, so any folder can be browsed - not just the one the logger
+    happens to be writing to.
+
+    Returns the chosen path, "" if the user cancelled, or None if no
+    dialog could be shown (then the caller falls back to the text list)."""
+    try:
+        import tkinter
+        from tkinter import filedialog
+    except Exception:
+        return None                  # tkinter missing - caller falls back
+
+    own_root = None
+    if parent is None:
+        # No Tk window to hang the dialog off, so make a hidden one
+        own_root = tkinter.Tk()
+        own_root.withdraw()
+        own_root.attributes("-topmost", True)
+        parent = own_root
+    try:
+        path = filedialog.askopenfilename(
+            parent=parent,
+            title="Open a saved DYN-200 run",
+            initialdir=os.path.abspath(initial_dir),
+            initialfile=os.path.basename(initial_file) if initial_file else "",
+            filetypes=[("DYN-200 runs", "*.csv"), ("All files", "*.*")])
+    except Exception:
+        return None
+    finally:
+        if own_root is not None:
+            own_root.destroy()
+    return path or ""                # askopenfilename returns "" on cancel
+
+
+def tk_window_of(fig):
+    """The figure's own Tk window, when the backend is Tk. Hanging the file
+    dialog off it avoids creating a second, competing Tk root."""
+    win = getattr(getattr(fig.canvas, "manager", None), "window", None)
+    if win is not None and type(win).__module__.split(".")[0] == "tkinter":
+        return win
+    return None
+
+
 def pick_csv(directory="."):
     """List the CSV files in a folder, newest first, and let the user pick
     one. Used by --view when no file name was given."""
@@ -629,13 +682,16 @@ def run_plot(logger):
     fig.subplots_adjust(bottom=0.165)
 
     def add_button(left, label, color, hover):
-        ax = fig.add_axes([left, 0.035, 0.135, 0.055])
-        return Button(ax, label, color=color, hovercolor=hover)
+        ax = fig.add_axes([left, 0.035, 0.125, 0.055])
+        btn = Button(ax, label, color=color, hovercolor=hover)
+        btn.label.set_fontsize(9)
+        return btn
 
-    btn_start = add_button(0.035, "\u25cf Start", "#cfe9cf", "#a5d8a5")
-    btn_stop  = add_button(0.180, "\u25a0 Stop",  "#f2cccc", "#e5a5a5")
-    btn_view  = add_button(0.325, "View",       "#ccd8ef", "#a5badd")
-    btn_tare  = add_button(0.470, "Tare",       "#e3e3e3", "#c6c6c6")
+    btn_start = add_button(0.030, "\u25cf Start", "#cfe9cf", "#a5d8a5")
+    btn_stop  = add_button(0.165, "\u25a0 Stop",  "#f2cccc", "#e5a5a5")
+    btn_view  = add_button(0.300, "View last",  "#ccd8ef", "#a5badd")
+    btn_open  = add_button(0.435, "Open...",    "#ccd8ef", "#a5badd")
+    btn_tare  = add_button(0.570, "Tare",       "#e3e3e3", "#c6c6c6")
 
     def on_start(_evt):
         logger.start_record_request.set()
@@ -646,25 +702,41 @@ def run_plot(logger):
     def on_tare(_evt):
         logger.tare_request.set()
 
-    def on_view(_evt):
+    def show_saved_run(path):
         # Button callbacks run on the GUI thread, so opening another
         # window here is safe; the logger thread is untouched.
-        with logger.lock:
-            path = logger.last_saved
-        if path is None:
-            print("\nNothing saved yet - press Start, then Stop, then View.")
-            return
         try:
             plot_run(path, blocking=False)
         except Exception as e:
             print(f"\nCould not open {path}: {e}")
 
+    def on_view(_evt):
+        with logger.lock:
+            path = logger.last_saved
+        if path is None:
+            print("\nNothing saved yet - press Start, then Stop, then "
+                  "View last. Use Open... for a file from an earlier run.")
+            return
+        show_saved_run(path)
+
+    def on_open(_evt):
+        with logger.lock:
+            last = logger.last_saved
+        path = choose_csv_dialog(logger.args.csv_dir, last,
+                                 parent=tk_window_of(fig))
+        if path is None:
+            print("\nNo file dialog available here - use view_data.bat "
+                  "to pick a run from a list instead.")
+        elif path:                      # "" means the user cancelled
+            show_saved_run(path)
+
     btn_start.on_clicked(on_start)
     btn_stop.on_clicked(on_stop)
     btn_view.on_clicked(on_view)
+    btn_open.on_clicked(on_open)
     btn_tare.on_clicked(on_tare)
     # matplotlib drops buttons that nothing refers to, so keep a reference
-    fig._dyn200_buttons = (btn_start, btn_stop, btn_view, btn_tare)
+    fig._dyn200_buttons = (btn_start, btn_stop, btn_view, btn_open, btn_tare)
 
     fig.text(0.015, 0.005, "R = start/stop recording    T = tare",
              ha="left", va="bottom", fontsize=8, alpha=0.6)
@@ -720,7 +792,14 @@ def main():
 
     if args.view is not None:
         # Viewer mode: no sensor, no database - just look at a saved run.
-        plot_run(args.view or pick_csv(args.csv_dir))
+        chosen = args.view
+        if not chosen:
+            chosen = choose_csv_dialog(args.csv_dir)
+            if chosen is None:          # no dialog here - use the text list
+                chosen = pick_csv(args.csv_dir)
+            elif not chosen:            # dialog shown, user cancelled
+                return
+        plot_run(chosen)
         return
 
     if not args.demo and not args.port:

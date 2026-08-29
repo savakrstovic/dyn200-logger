@@ -91,10 +91,18 @@ spanning **2 registers** (read via `minimalmodbus.read_long`):
 - `plot_run(path, blocking)` — three-panel diagram of one saved CSV, with a
   summary line (duration, samples, mean/max torque, mean speed, mean power).
   `blocking=False` is used by the View button so logging carries on.
-- `pick_csv()` — list the CSVs in a folder, newest first, and choose one
-  (same spirit as `pick_port()`). Used by `--view` with no file name.
+- `choose_csv_dialog()` — the OS "open file" dialog (tkinter), so any
+  folder can be browsed. Returns the path, `""` if cancelled, or `None` if
+  no dialog could be shown — callers fall back to `pick_csv()` on `None`
+  but must **not** fall back on `""`, or cancelling would reopen a picker.
+- `tk_window_of(fig)` — the figure's Tk window when the backend is Tk, so
+  the dialog hangs off it instead of creating a second Tk root.
+- `pick_csv()` — text fallback: list the CSVs in a folder, newest first,
+  and choose one (same spirit as `pick_port()`).
 - `run_plot()` — matplotlib `FuncAnimation` live plot (torque, speed, power)
-  plus the Start / Stop / View / Tare buttons along the bottom.
+  plus the Start / Stop / View last / Open... / Tare buttons along the
+  bottom. `tkinter` is imported lazily inside `choose_csv_dialog()`, so the
+  program still runs (with the text picker) if it is missing.
 - `main()` — argument parsing and wiring. `--view` short-circuits everything
   else: no sensor, no database, just `plot_run()`.
 
